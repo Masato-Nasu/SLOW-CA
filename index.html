@@ -136,7 +136,7 @@
       <summary>技術メモ（あなた向け）</summary>
       <div class="small">
         ・3×3局所入力を base-4 で符号化（0..3）→ key。<br>
-        ・各 key に対し、出力3×3の平均ベクトルとカウントを保持。<br>
+        ・各 key に対し、出力3×3の各セルについて 0/1/2/3 のヒストグラムを保持。<br>
         ・未知 key は近傍の灰色傾向+揺らぎで補間。<br>
         ・競合は「重み（count）」でランダム優先（soft winner-take-all）。
       </div>
@@ -167,7 +167,7 @@
   let grid = new Uint8Array(N*N);
   let next = new Uint8Array(N*N);
 
-  // Lemma dictionary: key -> {count, meanOut[9]}
+  // Lemma dictionary (mode-hist): key -> {count, hist[9*4]}
   const dict = new Map();
 
   // ---- Utilities ----
@@ -240,21 +240,22 @@
         const key = encode3x3(x,y,grid);
         const entry = dict.get(key);
         if(entry){
-          // Use learned mean output
-          const mean = entry.mean;
+          // Use learned MODE output from histogram (per-cell argmax over 0..3)
+          const hist = entry.hist;
           let i=0;
           for(let dy=-1; dy<=1; dy++){
             for(let dx=-1; dx<=1; dx++){
               const xx=wrap(x+dx), yy=wrap(y+dy);
               const id=idx(xx,yy);
               const w = Math.sqrt(entry.count);
-              // --- sharpen toward extremes (esp. black) ---
-              const mv = mean[i];
-              const sharpened =
-                (mv >= 2.0) ? clamp(Math.round(mv + 0.6), 0, 3) :
-                (mv <= 1.0) ? clamp(Math.round(mv - 0.2), 0, 3) :
-                Math.round(mv);
-              accVal[id] += sharpened * w;
+
+              const h0 = hist[i*4+0], h1 = hist[i*4+1], h2 = hist[i*4+2], h3 = hist[i*4+3];
+              let mode = 0, best = h0;
+              if(h1>best){ best=h1; mode=1; }
+              if(h2>best){ best=h2; mode=2; }
+              if(h3>best){ best=h3; mode=3; }
+
+              accVal[id] += mode*w;
               accW[id]   += w;
               i++;
             }
@@ -304,8 +305,7 @@
       }
     }
 
-// 2) Learn lemmas from (grid -> next)
-    const inBlock = new Uint8Array(9);
+// 2) Learn lemmas from (grid -> next) using histograms
     const outBlock = new Uint8Array(9);
     for(let y=0;y<N;y++){
       for(let x=0;x<N;x++){
@@ -313,13 +313,13 @@
         get3x3(x,y, next, outBlock);
         let entry = dict.get(key);
         if(!entry){
-          entry = { count: 0, mean: new Float32Array(9) };
+          entry = { count: 0, hist: new Uint32Array(9*4) };
           dict.set(key, entry);
         }
         entry.count += 1;
-        const c = entry.count;
+        // increment histogram for each of 9 positions
         for(let i=0;i<9;i++){
-          entry.mean[i] += (outBlock[i] - entry.mean[i]) / c;
+          entry.hist[i*4 + outBlock[i]] += 1;
         }
       }
     }
@@ -483,7 +483,7 @@
   function dictToJSON(){
     const obj = {};
     for(const [k,e] of dict){
-      obj[k] = { c: e.count, m: Array.from(e.mean) };
+      obj[k] = { c: e.count, h: Array.from(e.hist) };
     }
     return JSON.stringify({N, obj}, null, 2);
   }
@@ -496,7 +496,17 @@
     dict.clear();
     for(const k in data.obj){
       const e = data.obj[k];
-      dict.set(Number(k), { count: e.c, mean: Float32Array.from(e.m) });
+      // backward compatibility: if mean exists, convert to hist weakly
+      if(e.h){
+        dict.set(Number(k), { count: e.c, hist: Uint32Array.from(e.h) });
+      } else if(e.m){
+        const hist = new Uint32Array(9*4);
+        for(let i=0;i<9;i++){
+          const v = Math.max(0, Math.min(3, Math.round(e.m[i])));
+          hist[i*4+v] = Math.max(1, Math.round(e.c/9));
+        }
+        dict.set(Number(k), { count: e.c, hist });
+      }
     }
   }
 
