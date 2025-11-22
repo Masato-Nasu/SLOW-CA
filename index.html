@@ -1,0 +1,487 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Lemma-Driven CA 2D (4階調)</title>
+  <meta name="theme-color" content="#111111" />
+  <link rel="manifest" href="manifest.json" />
+  <style>
+    :root{
+      --bg:#0d0d0d; --panel:#161616; --panel2:#1f1f1f; --text:#eaeaea; --muted:#a8a8a8;
+      --accent:#7bdff2;
+    }
+    *{box-sizing:border-box; font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans JP", sans-serif;}
+    body{margin:0; background:var(--bg); color:var(--text); display:flex; min-height:100vh;}
+    #app{display:grid; grid-template-columns: 1fr 320px; width:100%;}
+    canvas{width:100%; height:100%; display:block; background:#000;}
+    aside{background:var(--panel); border-left:1px solid #2a2a2a; padding:12px; overflow:auto;}
+    h1{font-size:18px; margin:6px 0 10px;}
+    .row{display:flex; gap:8px; align-items:center; margin:8px 0;}
+    .row label{flex:1; font-size:13px; color:var(--muted);}
+    .row input[type="range"]{width:100%;}
+    .btn{background:var(--panel2); border:1px solid #333; color:var(--text); padding:8px 10px; border-radius:10px; cursor:pointer; font-size:13px;}
+    .btn:hover{border-color:#555;}
+    .btn.primary{background:#202a2a; border-color:#2e4a4a;}
+    .grid2{display:grid; grid-template-columns:1fr 1fr; gap:8px;}
+    .small{font-size:12px; color:var(--muted); line-height:1.5;}
+    .stat{font-size:12px; background:#111; padding:8px; border-radius:8px; border:1px solid #2a2a2a;}
+    .legend{display:grid; grid-template-columns:auto 1fr; gap:6px 10px; font-size:12px; align-items:center;}
+    .swatch{width:18px; height:18px; border-radius:4px; border:1px solid #555;}
+    details{background:#121212; padding:8px; border-radius:8px; border:1px solid #2a2a2a; margin-top:10px;}
+    summary{cursor:pointer; font-size:13px;}
+    textarea{width:100%; height:84px; background:#0f0f0f; color:#eaeaea; border:1px solid #333; border-radius:8px; padding:8px; font-size:12px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;}
+    @media (max-width: 900px){
+      #app{grid-template-columns:1fr; grid-template-rows: 1fr auto;}
+      aside{border-left:none; border-top:1px solid #2a2a2a;}
+    }
+  </style>
+</head>
+<body>
+<div id="app">
+  <canvas id="cv"></canvas>
+  <aside>
+    <h1>Lemma-Driven CA 2D（4階調）</h1>
+    <div class="small">
+      局所パターン（3×3）から観測された「入→出」をレンマ辞書として学習し、
+      以後同じ局所図形が出たらその出力を適用します。未知は薄灰/濃灰で揺らぎます。
+    </div>
+
+    <div class="row">
+      <label>サイズ</label>
+      <select id="sizeSel" class="btn">
+        <option value="96">96</option>
+        <option value="128" selected>128</option>
+        <option value="160">160</option>
+        <option value="192">192</option>
+      </select>
+    </div>
+
+    <div class="row">
+      <label>スケール（表示倍率）</label>
+      <input id="scaleR" type="range" min="3" max="8" value="5" step="1">
+      <div id="scaleV" style="width:32px; text-align:right; font-size:12px;">5</div>
+    </div>
+
+    <div class="row">
+      <label>速度（steps / sec）</label>
+      <input id="speedR" type="range" min="1" max="60" value="20" step="1">
+      <div id="speedV" style="width:32px; text-align:right; font-size:12px;">20</div>
+    </div>
+
+    <div class="row">
+      <label>未知の揺らぎ強度</label>
+      <input id="jitterR" type="range" min="0" max="1" value="0.35" step="0.01">
+      <div id="jitterV" style="width:48px; text-align:right; font-size:12px;">0.35</div>
+    </div>
+
+    <div class="row">
+      <label>忘却率（辞書の減衰）</label>
+      <input id="forgetR" type="range" min="0" max="0.01" value="0.0015" step="0.0005">
+      <div id="forgetV" style="width:64px; text-align:right; font-size:12px;">0.0015</div>
+    </div>
+
+    <div class="grid2">
+      <button id="playBtn" class="btn primary">▶ 再生</button>
+      <button id="stepBtn" class="btn">⏭ 1ステップ</button>
+      <button id="seedBtn" class="btn">🎲 初期化</button>
+      <button id="clearBtn" class="btn">🧽 クリア</button>
+    </div>
+
+    <div class="row">
+      <label>描画モード</label>
+      <select id="paintSel" class="btn">
+        <option value="3">黒（確定/生）</option>
+        <option value="2">濃灰（競合/生になりかけ）</option>
+        <option value="1">薄灰（未確定/揺らぎ）</option>
+        <option value="0">白（空）</option>
+        <option value="-1" selected>消しゴム（右クリック）</option>
+      </select>
+    </div>
+
+    <div class="legend">
+      <div class="swatch" style="background:#ffffff"></div><div>0: 白（空/死）</div>
+      <div class="swatch" style="background:#bdbdbd"></div><div>1: 薄灰（未確定/揺らぎ）</div>
+      <div class="swatch" style="background:#5a5a5a"></div><div>2: 濃灰（競合/半確定）</div>
+      <div class="swatch" style="background:#000000"></div><div>3: 黒（確定/生）</div>
+    </div>
+
+    <div class="row stat" id="stats"></div>
+
+    <details>
+      <summary>レンマ辞書のエクスポート / インポート</summary>
+      <div class="small" style="margin:6px 0 4px;">現在の辞書（JSON）</div>
+      <textarea id="dictArea" spellcheck="false"></textarea>
+      <div class="grid2" style="margin-top:6px;">
+        <button id="exportBtn" class="btn">📤 エクスポート</button>
+        <button id="importBtn" class="btn">📥 インポート</button>
+      </div>
+      <div class="small" style="margin-top:6px;">
+        ※辞書は局所3×3パターンの「入→出」平均を保存しています。  
+        実験の途中で保存/再開ができます。
+      </div>
+    </details>
+
+    <details>
+      <summary>使い方</summary>
+      <div class="small">
+        ・画面をドラッグするとセルを描けます（左＝選択状態、右＝白で消去）。<br>
+        ・再生すると辞書が育ち、黒い“確定”が増える傾向が出ます。<br>
+        ・未知領域は薄灰/濃灰でゆらぎます（レンマの論理の「両非/両是」領域）。<br>
+        ・速度や揺らぎを変えると相転移が見やすいです。
+      </div>
+    </details>
+
+    <details>
+      <summary>技術メモ（あなた向け）</summary>
+      <div class="small">
+        ・3×3局所入力を base-4 で符号化（0..3）→ key。<br>
+        ・各 key に対し、出力3×3の平均ベクトルとカウントを保持。<br>
+        ・未知 key は近傍の灰色傾向+揺らぎで補間。<br>
+        ・競合は「重み（count）」でランダム優先（soft winner-take-all）。
+      </div>
+    </details>
+  </aside>
+</div>
+
+<script>
+(() => {
+  // ---- PWA install & SW ----
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
+  }
+
+  // ---- Canvas / Grid ----
+  const cv = document.getElementById('cv');
+  const ctx = cv.getContext('2d', { alpha: false });
+  let N = 128, scale = 5;
+  function resizeCanvas(){
+    cv.width = N * scale;
+    cv.height = N * scale;
+    cv.style.imageRendering = 'pixelated';
+    draw();
+  }
+
+  const COLORS = ["#ffffff", "#bdbdbd", "#5a5a5a", "#000000"];
+
+  let grid = new Uint8Array(N*N);
+  let next = new Uint8Array(N*N);
+
+  // Lemma dictionary: key -> {count, meanOut[9]}
+  const dict = new Map();
+
+  // ---- Utilities ----
+  const idx = (x,y) => (y*N + x);
+  const clamp = (v,a,b)=> v<a?a:v>b?b:v;
+  const wrap = (v)=> (v+N)%N;
+
+  function encode3x3(x,y, arr){
+    // base-4 encoding of 3x3 neighborhood
+    let key = 0;
+    let p = 1;
+    for(let dy=-1; dy<=1; dy++){
+      for(let dx=-1; dx<=1; dx++){
+        const v = arr[idx(wrap(x+dx), wrap(y+dy))];
+        key += v * p;
+        p *= 4;
+      }
+    }
+    return key >>> 0;
+  }
+
+  function get3x3(x,y, arr, out9){
+    let i=0;
+    for(let dy=-1; dy<=1; dy++){
+      for(let dx=-1; dx<=1; dx++){
+        out9[i++] = arr[idx(wrap(x+dx), wrap(y+dy))];
+      }
+    }
+  }
+
+  function set3x3(x,y, arr, in9){
+    let i=0;
+    for(let dy=-1; dy<=1; dy++){
+      for(let dx=-1; dx<=1; dx++){
+        arr[idx(wrap(x+dx), wrap(y+dy))] = in9[i++];
+      }
+    }
+  }
+
+  // ---- Random seed ----
+  function seed(){
+    for(let i=0;i<grid.length;i++){
+      const r = Math.random();
+      grid[i] = r<0.72?0 : r<0.86?1 : r<0.95?2 : 3;
+    }
+  }
+
+  function clearGrid(){
+    grid.fill(0);
+  }
+
+  // ---- Update step (Lemma-driven) ----
+  let jitter = 0.35;
+  let forget = 0.0015;
+
+  function step(){
+    // 1) Create next by lemma application (soft, overlapping)
+    next.set(grid); // start from current as base
+
+    const in9 = new Uint8Array(9);
+    const out9 = new Float32Array(9);
+
+    // Accumulator for competing writes
+    const accVal = new Float32Array(N*N);
+    const accW   = new Float32Array(N*N);
+
+    for(let y=0;y<N;y++){
+      for(let x=0;x<N;x++){
+        const key = encode3x3(x,y,grid);
+        const entry = dict.get(key);
+        if(entry){
+          // Use learned mean output
+          const mean = entry.mean;
+          let i=0;
+          for(let dy=-1; dy<=1; dy++){
+            for(let dx=-1; dx<=1; dx++){
+              const xx=wrap(x+dx), yy=wrap(y+dy);
+              const id=idx(xx,yy);
+              const w = Math.sqrt(entry.count);
+              accVal[id] += mean[i]*w;
+              accW[id]   += w;
+              i++;
+            }
+          }
+        } else {
+          // Unknown: weak pull toward nearby gray tendency + jitter
+          // compute local average
+          let s=0;
+          for(let dy=-1; dy<=1; dy++){
+            for(let dx=-1; dx<=1; dx++){
+              s += grid[idx(wrap(x+dx), wrap(y+dy))];
+            }
+          }
+          const avg = s/9; // 0..3
+          let i=0;
+          for(let dy=-1; dy<=1; dy++){
+            for(let dx=-1; dx<=1; dx++){
+              const xx=wrap(x+dx), yy=wrap(y+dy);
+              const id=idx(xx,yy);
+              const noise = (Math.random()-0.5)*2*jitter; // [-jitter, jitter]
+              const v = clamp(avg + noise, 0, 3);
+              const w = 0.35;
+              accVal[id] += v*w;
+              accW[id]   += w;
+              i++;
+            }
+          }
+        }
+      }
+    }
+
+    // Resolve accumulator -> next
+    for(let i=0;i<next.length;i++){
+      if(accW[i]>0){
+        const v = accVal[i]/accW[i];
+        next[i] = clamp(Math.round(v),0,3);
+      } else {
+        next[i] = grid[i];
+      }
+    }
+
+    // 2) Learn lemmas from (grid -> next)
+    const inBlock = new Uint8Array(9);
+    const outBlock = new Uint8Array(9);
+    for(let y=0;y<N;y++){
+      for(let x=0;x<N;x++){
+        const key = encode3x3(x,y,grid);
+        get3x3(x,y, next, outBlock);
+        let entry = dict.get(key);
+        if(!entry){
+          entry = { count: 0, mean: new Float32Array(9) };
+          dict.set(key, entry);
+        }
+        entry.count += 1;
+        const c = entry.count;
+        for(let i=0;i<9;i++){
+          entry.mean[i] += (outBlock[i] - entry.mean[i]) / c;
+        }
+      }
+    }
+
+    // 3) Forgetting / decay
+    if(forget>0){
+      for(const [k,e] of dict){
+        e.count *= (1 - forget);
+        if(e.count < 0.5){
+          dict.delete(k);
+        }
+      }
+    }
+
+    // swap
+    const tmp = grid; grid = next; next = tmp;
+
+    draw();
+    updateStats();
+  }
+
+  // ---- Draw ----
+  function draw(){
+    const w=cv.width, h=cv.height;
+    // draw pixelated blocks
+    for(let y=0;y<N;y++){
+      for(let x=0;x<N;x++){
+        ctx.fillStyle = COLORS[grid[idx(x,y)]];
+        ctx.fillRect(x*scale, y*scale, scale, scale);
+      }
+    }
+  }
+
+  // ---- Controls ----
+  const sizeSel = document.getElementById('sizeSel');
+  const scaleR = document.getElementById('scaleR');
+  const speedR = document.getElementById('speedR');
+  const jitterR = document.getElementById('jitterR');
+  const forgetR = document.getElementById('forgetR');
+
+  const scaleV = document.getElementById('scaleV');
+  const speedV = document.getElementById('speedV');
+  const jitterV = document.getElementById('jitterV');
+  const forgetV = document.getElementById('forgetV');
+
+  function applySize(){
+    N = parseInt(sizeSel.value,10);
+    grid = new Uint8Array(N*N);
+    next = new Uint8Array(N*N);
+    dict.clear();
+    seed();
+    resizeCanvas();
+    updateStats();
+  }
+
+  sizeSel.onchange = applySize;
+
+  scaleR.oninput = () => {
+    scale = parseInt(scaleR.value,10);
+    scaleV.textContent = scale;
+    resizeCanvas();
+  };
+  speedR.oninput = () => speedV.textContent = speedR.value;
+  jitterR.oninput = () => { jitter = parseFloat(jitterR.value); jitterV.textContent = jitter.toFixed(2); };
+  forgetR.oninput = () => { forget = parseFloat(forgetR.value); forgetV.textContent = forget.toFixed(4); };
+
+  const playBtn = document.getElementById('playBtn');
+  const stepBtn = document.getElementById('stepBtn');
+  const seedBtn = document.getElementById('seedBtn');
+  const clearBtn = document.getElementById('clearBtn');
+
+  let playing=false, timer=null;
+  function start(){
+    if(timer) clearInterval(timer);
+    const sp = parseInt(speedR.value,10);
+    timer = setInterval(step, 1000/sp);
+    playing=true;
+    playBtn.textContent="⏸ 停止";
+  }
+  function stop(){
+    if(timer) clearInterval(timer);
+    timer=null;
+    playing=false;
+    playBtn.textContent="▶ 再生";
+  }
+  playBtn.onclick = () => playing?stop():start();
+  stepBtn.onclick = () => { if(!playing) step(); };
+  seedBtn.onclick = () => { dict.clear(); seed(); draw(); updateStats(); };
+  clearBtn.onclick = () => { dict.clear(); clearGrid(); draw(); updateStats(); };
+
+  // ---- Painting ----
+  const paintSel = document.getElementById('paintSel');
+  let painting=false, paintVal=3;
+
+  function pointerToCell(ev){
+    const rect=cv.getBoundingClientRect();
+    const x=Math.floor((ev.clientX-rect.left) / (rect.width / cv.width) / scale);
+    const y=Math.floor((ev.clientY-rect.top) / (rect.height / cv.height) / scale);
+    return {x:clamp(x,0,N-1), y:clamp(y,0,N-1)};
+  }
+
+  function paintAt(ev, val){
+    const {x,y}=pointerToCell(ev);
+    grid[idx(x,y)] = clamp(val,0,3);
+    draw();
+  }
+
+  cv.addEventListener('pointerdown', (ev)=>{
+    ev.preventDefault();
+    painting=true;
+    paintVal = parseInt(paintSel.value,10);
+    if(ev.button===2){ paintVal=0; }
+    paintAt(ev, paintVal>=0?paintVal:0);
+    cv.setPointerCapture(ev.pointerId);
+  });
+  cv.addEventListener('pointermove', (ev)=>{
+    if(!painting) return;
+    const v = paintVal>=0?paintVal:0;
+    paintAt(ev, v);
+  });
+  cv.addEventListener('pointerup', (ev)=>{ painting=false; cv.releasePointerCapture(ev.pointerId); });
+  cv.addEventListener('contextmenu', e=>e.preventDefault());
+
+  // ---- Export/Import dict ----
+  const dictArea = document.getElementById('dictArea');
+  const exportBtn = document.getElementById('exportBtn');
+  const importBtn = document.getElementById('importBtn');
+
+  function dictToJSON(){
+    const obj = {};
+    for(const [k,e] of dict){
+      obj[k] = { c: e.count, m: Array.from(e.mean) };
+    }
+    return JSON.stringify({N, obj}, null, 2);
+  }
+  function jsonToDict(str){
+    const data = JSON.parse(str);
+    if(data.N && data.N!==N){
+      sizeSel.value = String(data.N);
+      applySize();
+    }
+    dict.clear();
+    for(const k in data.obj){
+      const e = data.obj[k];
+      dict.set(Number(k), { count: e.c, mean: Float32Array.from(e.m) });
+    }
+  }
+
+  exportBtn.onclick = ()=>{ dictArea.value=dictToJSON(); dictArea.select(); };
+  importBtn.onclick = ()=>{
+    try{
+      jsonToDict(dictArea.value);
+      updateStats();
+    }catch(err){
+      alert("インポート失敗: " + err.message);
+    }
+  };
+
+  // ---- Stats ----
+  const statsEl = document.getElementById('stats');
+  function updateStats(){
+    let c0=0,c1=0,c2=0,c3=0;
+    for(const v of grid){
+      if(v===0)c0++; else if(v===1)c1++; else if(v===2)c2++; else c3++;
+    }
+    statsEl.innerHTML = `
+      セル数: ${N}×${N} / 辞書: ${dict.size} lemma<br>
+      白:${c0} 薄灰:${c1} 濃灰:${c2} 黒:${c3}
+    `;
+  }
+
+  // ---- Boot ----
+  seed();
+  resizeCanvas();
+  updateStats();
+
+})();
+</script>
+</body>
+</html>
