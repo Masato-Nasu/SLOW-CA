@@ -65,20 +65,20 @@
 
     <div class="row">
       <label>速度（steps / sec）</label>
-      <input id="speedR" type="range" min="1" max="60" value="14" step="1">
-      <div id="speedV" style="width:32px; text-align:right; font-size:12px;">14</div>
+      <input id="speedR" type="range" min="1" max="60" value="12" step="1">
+      <div id="speedV" style="width:32px; text-align:right; font-size:12px;">12</div>
     </div>
 
     <div class="row">
       <label>未知の揺らぎ強度</label>
-      <input id="jitterR" type="range" min="0" max="1" value="0.75" step="0.01">
-      <div id="jitterV" style="width:48px; text-align:right; font-size:12px;">0.75</div>
+      <input id="jitterR" type="range" min="0" max="1" value="0.60" step="0.01">
+      <div id="jitterV" style="width:48px; text-align:right; font-size:12px;">0.60</div>
     </div>
 
     <div class="row">
       <label>忘却率（辞書の減衰）</label>
-      <input id="forgetR" type="range" min="0" max="0.01" value="0.0003" step="0.0005">
-      <div id="forgetV" style="width:64px; text-align:right; font-size:12px;">0.0003</div>
+      <input id="forgetR" type="range" min="0" max="0.01" value="0.0006" step="0.0005">
+      <div id="forgetV" style="width:64px; text-align:right; font-size:12px;">0.0006</div>
     </div>
 
     <div class="grid2">
@@ -211,8 +211,8 @@
   function seed(){
     for(let i=0;i<grid.length;i++){
       const r = Math.random();
-      // richer dark distribution to bootstrap black lemmas
-      grid[i] = r<0.55?0 : r<0.70?1 : r<0.88?2 : 3;
+      // darker bootstrap for v6: more 2/3 to form moving black lemmas
+      grid[i] = r<0.45?0 : r<0.60?1 : r<0.82?2 : 3;
     }
   }
 
@@ -221,8 +221,8 @@
   }
 
   // ---- Update step (Lemma-driven) ----
-  let jitter = 0.75;
-  let forget = 0.0003;
+  let jitter = 0.60;
+  let forget = 0.0006;
 
   function step(){
     // 1) Create next by lemma application (soft, overlapping)
@@ -255,7 +255,17 @@
               if(h2>best){ best=h2; mode=2; }
               if(h3>best){ best=h3; mode=3; }
 
-              accVal[id] += mode*w;
+              // epsilon-sampling to preserve dynamics
+              const eps = Math.min(0.35, jitter*0.45);
+              let val = mode;
+              if(Math.random() < eps){
+                const sum = h0+h1+h2+h3;
+                if(sum>0){
+                  const r = Math.random()*sum;
+                  val = (r<h0)?0:(r<h0+h1)?1:(r<h0+h1+h2)?2:3;
+                }
+              }
+              accVal[id] += val*w;
               accW[id]   += w;
               i++;
             }
@@ -277,9 +287,8 @@
               const id=idx(xx,yy);
               const noise = (Math.random()-0.5)*2*jitter; // [-jitter, jitter]
               const v = clamp(avg + noise + 0.15, 0, 3); // slight dark prior
-              const w = 0.35;
-              accVal[id] += v*w;
-              accW[id]   += w;
+              const w = 0.12;
+              if(dx===0 && dy===0){ accVal[id] += v*w; accW[id] += w; }
               i++;
             }
           }
@@ -336,7 +345,18 @@
 
 
 
-    // --- gentle re-seeding when black is scarce ---
+    // --- black re-seeding when black is scarce ---
+    let blackCount2 = 0;
+    for(const v of next) if(v===3) blackCount2++;
+    if(blackCount2 < next.length * 0.015){ // 黒が1.5%未満なら
+      for(let i=0;i<next.length;i++){
+        if(next[i]<=1 && Math.random()<0.006){
+          next[i]=3; // 黒の種
+        }
+      }
+    }
+
+// --- gentle re-seeding when black is scarce ---
     let blackCount = 0;
     for(const v of next) if(v===3) blackCount++;
     if(blackCount < next.length * 0.02){ // 黒が2%未満なら
