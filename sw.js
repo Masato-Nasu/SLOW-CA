@@ -1,5 +1,5 @@
 // Lemma-Driven CA PWA Service Worker
-const CACHE_NAME = "lemma-ca-v7";
+const CACHE_NAME = "lemma-ca-v7b";
 const ASSETS = [
   "./",
   "./index.html",

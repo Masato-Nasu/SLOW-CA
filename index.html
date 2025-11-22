@@ -337,6 +337,19 @@
         get3x3(x,y, grid, inBlock);
         get3x3(x,y, next, outBlock);
 
+        // skip learning on uniform patches to avoid all-black / flat attractors
+        let minIn=4, maxIn=-1, minOut=4, maxOut=-1;
+        for(let k=0;k<9;k++){
+          const iv=inBlock[k], ov=outBlock[k];
+          if(iv<minIn) minIn=iv;
+          if(iv>maxIn) maxIn=iv;
+          if(ov<minOut) minOut=ov;
+          if(ov>maxOut) maxOut=ov;
+        }
+        if(maxIn===minIn && maxOut===minOut){
+          continue;
+        }
+
         let entry = dict.get(key);
         if(!entry){
           entry = { count: 0, hist: new Uint32Array(9*4), shiftHist: new Uint32Array(9) };
@@ -537,21 +550,18 @@
 
   // ---- Export/Import dict ----
   const dictArea = document.getElementById('dictArea');
+  
   const exportBtn = document.getElementById('exportBtn');
   const importBtn = document.getElementById('importBtn');
 
   function dictToJSON(){
     const obj = {};
     for(const [k,e] of dict){
-      obj[k] = { c: e.count, h: Array.from(e.hist), s: Array.from(e.shiftHist||[]) };
-    }
-    return JSON.stringify({N, obj}, null, 2);
-  };
-    for(const [k,e] of dict){
-      obj[k] = { c: e.count, h: Array.from(e.hist) };
+      obj[k] = { c: e.count, h: Array.from(e.hist), s: Array.from(e.shiftHist || []) };
     }
     return JSON.stringify({N, obj}, null, 2);
   }
+
   function jsonToDict(str){
     const data = JSON.parse(str);
     if(data.N && data.N!==N){
@@ -577,24 +587,8 @@
       }
     }
   }
-    dict.clear();
-    for(const k in data.obj){
-      const e = data.obj[k];
-      // backward compatibility: if mean exists, convert to hist weakly
-      if(e.h){
-        dict.set(Number(k), { count: e.c, hist: Uint32Array.from(e.h) });
-      } else if(e.m){
-        const hist = new Uint32Array(9*4);
-        for(let i=0;i<9;i++){
-          const v = Math.max(0, Math.min(3, Math.round(e.m[i])));
-          hist[i*4+v] = Math.max(1, Math.round(e.c/9));
-        }
-        dict.set(Number(k), { count: e.c, hist });
-      }
-    }
-  }
 
-  exportBtn.onclick = ()=>{ dictArea.value=dictToJSON(); dictArea.select(); };
+  exportBtn.onclick = ()=>{ dictArea.value = dictToJSON(); dictArea.select(); };
   importBtn.onclick = ()=>{
     try{
       jsonToDict(dictArea.value);
@@ -604,7 +598,7 @@
     }
   };
 
-  // ---- Stats ----
+// ---- Stats ----
   const statsEl = document.getElementById('stats');
   function updateStats(){
     let c0=0,c1=0,c2=0,c3=0;
