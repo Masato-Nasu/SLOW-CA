@@ -247,7 +247,13 @@
               const xx=wrap(x+dx), yy=wrap(y+dy);
               const id=idx(xx,yy);
               const w = Math.sqrt(entry.count);
-              accVal[id] += mean[i]*w;
+              // --- sharpen toward extremes (esp. black) ---
+              const mv = mean[i];
+              const sharpened =
+                (mv >= 2.0) ? clamp(Math.round(mv + 0.6), 0, 3) :
+                (mv <= 1.0) ? clamp(Math.round(mv - 0.2), 0, 3) :
+                Math.round(mv);
+              accVal[id] += sharpened * w;
               accW[id]   += w;
               i++;
             }
@@ -319,6 +325,18 @@
       }
     }
 
+
+
+    // --- gentle re-seeding when black is scarce ---
+    let blackCount = 0;
+    for(const v of next) if(v===3) blackCount++;
+    if(blackCount < next.length * 0.02){ // 黒が2%未満なら
+      for(let i=0;i<next.length;i++){
+        if(next[i]===0 && Math.random()<0.01){
+          next[i]=1; // 薄灰の種
+        }
+      }
+    }
 
     // --- gray drift breaker: 灰色が長く残る固定点を壊す ---
     for (let i = 0; i < grid.length; i++) {
