@@ -71,14 +71,14 @@
 
     <div class="row">
       <label>未知の揺らぎ強度</label>
-      <input id="jitterR" type="range" min="0" max="1" value="0.35" step="0.01">
-      <div id="jitterV" style="width:48px; text-align:right; font-size:12px;">0.35</div>
+      <input id="jitterR" type="range" min="0" max="1" value="0.70" step="0.01">
+      <div id="jitterV" style="width:48px; text-align:right; font-size:12px;">0.70</div>
     </div>
 
     <div class="row">
       <label>忘却率（辞書の減衰）</label>
-      <input id="forgetR" type="range" min="0" max="0.01" value="0.0015" step="0.0005">
-      <div id="forgetV" style="width:64px; text-align:right; font-size:12px;">0.0015</div>
+      <input id="forgetR" type="range" min="0" max="0.01" value="0.0005" step="0.0005">
+      <div id="forgetV" style="width:64px; text-align:right; font-size:12px;">0.0005</div>
     </div>
 
     <div class="grid2">
@@ -220,8 +220,8 @@
   }
 
   // ---- Update step (Lemma-driven) ----
-  let jitter = 0.35;
-  let forget = 0.0015;
+  let jitter = 0.70;
+  let forget = 0.0005;
 
   function step(){
     // 1) Create next by lemma application (soft, overlapping)
@@ -315,6 +315,26 @@
         e.count *= (1 - forget);
         if(e.count < 0.5){
           dict.delete(k);
+        }
+      }
+    }
+
+
+    // --- gray drift breaker: 灰色が長く残る固定点を壊す ---
+    for (let i = 0; i < grid.length; i++) {
+      const v = next[i];
+      if (v === 1 || v === 2) {
+        if (Math.random() < 0.015) {
+          let s = 0;
+          const x = i % N;
+          const y = (i / N) | 0;
+          for (let dy = -1; dy <= 1; dy++) {
+            for (let dx = -1; dx <= 1; dx++) {
+              s += grid[idx(wrap(x+dx), wrap(y+dy))];
+            }
+          }
+          const avg = s / 9;
+          next[i] = avg > 1.5 ? 3 : 0;
         }
       }
     }
