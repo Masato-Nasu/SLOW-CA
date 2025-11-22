@@ -136,7 +136,7 @@
       <summary>技術メモ（あなた向け）</summary>
       <div class="small">
         ・3×3局所入力を base-4 で符号化（0..3）→ key。<br>
-        ・各 key に対し、出力3×3の各セルについて 0/1/2/3 のヒストグラムを保持。<br>
+        ・各 key に対し、出力3×3の各セルについて 0/1/2/3 のヒストグラムとシフト方向ヒストグラムを保持。<br>
         ・未知 key は近傍の灰色傾向+揺らぎで補間。<br>
         ・競合は「重み（count）」でランダム優先（soft winner-take-all）。
       </div>
@@ -167,7 +167,7 @@
   let grid = new Uint8Array(N*N);
   let next = new Uint8Array(N*N);
 
-  // Lemma dictionary (mode-hist): key -> {count, hist[9*4]}
+  // Lemma dictionary (shift+mode-hist): key -> {count, hist[9*4], shiftHist[9]}
   const dict = new Map();
 
   // ---- Utilities ----
@@ -241,11 +241,24 @@
         const entry = dict.get(key);
         if(entry){
           // Use learned MODE output from histogram (per-cell argmax over 0..3)
+          // and apply a learned shift (glider bias)
           const hist = entry.hist;
+          const sh = entry.shiftHist;
+          // dominant shift
+          let bestS = 4, bestC = sh ? (sh[4]||0) : 0;
+          if(sh){
+            for(let s=0;s<9;s++){
+              const c = sh[s]||0;
+              if(c>bestC){ bestC=c; bestS=s; }
+            }
+          }
+          const sdx = (bestS%3)-1;
+          const sdy = ((bestS/3)|0)-1;
+
           let i=0;
           for(let dy=-1; dy<=1; dy++){
             for(let dx=-1; dx<=1; dx++){
-              const xx=wrap(x+dx), yy=wrap(y+dy);
+              const xx=wrap(x+dx+sdx), yy=wrap(y+dy+sdy);
               const id=idx(xx,yy);
               const w = Math.sqrt(entry.count);
 
@@ -265,6 +278,7 @@
                   val = (r<h0)?0:(r<h0+h1)?1:(r<h0+h1+h2)?2:3;
                 }
               }
+
               accVal[id] += val*w;
               accW[id]   += w;
               i++;
@@ -314,18 +328,44 @@
       }
     }
 
-// 2) Learn lemmas from (grid -> next) using histograms
+// 2) Learn lemmas from (grid -> next) using histograms + shift
+    const inBlock = new Uint8Array(9);
     const outBlock = new Uint8Array(9);
     for(let y=0;y<N;y++){
       for(let x=0;x<N;x++){
         const key = encode3x3(x,y,grid);
+        get3x3(x,y, grid, inBlock);
         get3x3(x,y, next, outBlock);
+
         let entry = dict.get(key);
         if(!entry){
-          entry = { count: 0, hist: new Uint32Array(9*4) };
+          entry = { count: 0, hist: new Uint32Array(9*4), shiftHist: new Uint32Array(9) };
           dict.set(key, entry);
         }
         entry.count += 1;
+
+        // best shift by matching outBlock to shifted inBlock
+        let bestS = 4, bestD = 1e9;
+        for(let sy=-1; sy<=1; sy++){
+          for(let sx=-1; sx<=1; sx++){
+            let d=0;
+            for(let ddy=-1; ddy<=1; ddy++){
+              for(let ddx=-1; ddx<=1; ddx++){
+                const ii = (ddy+1)*3+(ddx+1);
+                const jj = (ddy-sy+1)*3+(ddx-sx+1);
+                if(jj>=0 && jj<9){
+                  d += Math.abs(outBlock[ii]-inBlock[jj]);
+                } else {
+                  d += 2; // penalty for outside
+                }
+              }
+            }
+            const sIdx = (sy+1)*3+(sx+1);
+            if(d<bestD){ bestD=d; bestS=sIdx; }
+          }
+        }
+        entry.shiftHist[bestS] += 1;
+
         // increment histogram for each of 9 positions
         for(let i=0;i<9;i++){
           entry.hist[i*4 + outBlock[i]] += 1;
@@ -333,7 +373,7 @@
       }
     }
 
-    // 3) Forgetting / decay
+// 3) Forgetting / decay
     if(forget>0){
       for(const [k,e] of dict){
         e.count *= (1 - forget);
@@ -503,6 +543,11 @@
   function dictToJSON(){
     const obj = {};
     for(const [k,e] of dict){
+      obj[k] = { c: e.count, h: Array.from(e.hist), s: Array.from(e.shiftHist||[]) };
+    }
+    return JSON.stringify({N, obj}, null, 2);
+  };
+    for(const [k,e] of dict){
       obj[k] = { c: e.count, h: Array.from(e.hist) };
     }
     return JSON.stringify({N, obj}, null, 2);
@@ -513,6 +558,25 @@
       sizeSel.value = String(data.N);
       applySize();
     }
+    dict.clear();
+    for(const k in data.obj){
+      const e = data.obj[k];
+      if(e.h){
+        dict.set(Number(k), {
+          count: e.c,
+          hist: Uint32Array.from(e.h),
+          shiftHist: Uint32Array.from(e.s || new Array(9).fill(0))
+        });
+      } else if(e.m){
+        const hist = new Uint32Array(9*4);
+        for(let i=0;i<9;i++){
+          const v = Math.max(0, Math.min(3, Math.round(e.m[i])));
+          hist[i*4+v] = Math.max(1, Math.round(e.c/9));
+        }
+        dict.set(Number(k), { count: e.c, hist, shiftHist: new Uint32Array(9) });
+      }
+    }
+  }
     dict.clear();
     for(const k in data.obj){
       const e = data.obj[k];
