@@ -240,6 +240,19 @@
         next[i] = v;
       }
 
+            // --- 黒のリシード：黒が少なすぎるときに少しだけ黒を補給する ---
+            let blackCount = 0;
+            for (let i = 0; i < next.length; i++) {
+              if (next[i] === 0) blackCount++;
+            }
+            if (blackCount < next.length * 0.02) { // 黒が2%未満なら
+              for (let i = 0; i < next.length; i++) {
+                if (next[i] > 0 && Math.random() < 0.008) {
+                  next[i] = 0; // 黒の種
+                }
+              }
+            }
+
       // 3) swap
       const tmp = grid;
       grid = next;

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'slow-ca-v1';
+const CACHE_NAME = 'slow-ca-v2';
 const ASSETS = [
   './',
   './index.html',
