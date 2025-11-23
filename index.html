@@ -1,622 +1,354 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>Lemma-Driven CA 2D (4階調)</title>
-  <meta name="theme-color" content="#111111" />
-  <link rel="manifest" href="manifest.json" />
+  <meta charset="UTF-8" />
+  <title>Lemma-like Slow CA</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="manifest" href="./manifest.json">
   <style>
-    :root{
-      --bg:#0d0d0d; --panel:#161616; --panel2:#1f1f1f; --text:#eaeaea; --muted:#a8a8a8;
-      --accent:#7bdff2;
+    body {
+      margin: 0;
+      background: #111;
+      color: #eee;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      display: flex;
+      flex-direction: row;
+      height: 100vh;
+      overflow: hidden;
     }
-    *{box-sizing:border-box; font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans JP", sans-serif;}
-    body{margin:0; background:var(--bg); color:var(--text); display:flex; min-height:100vh;}
-    #app{display:grid; grid-template-columns: 1fr 320px; width:100%;}
-    canvas{width:100%; height:100%; display:block; background:#000;}
-    aside{background:var(--panel); border-left:1px solid #2a2a2a; padding:12px; overflow:auto;}
-    h1{font-size:18px; margin:6px 0 10px;}
-    .row{display:flex; gap:8px; align-items:center; margin:8px 0;}
-    .row label{flex:1; font-size:13px; color:var(--muted);}
-    .row input[type="range"]{width:100%;}
-    .btn{background:var(--panel2); border:1px solid #333; color:var(--text); padding:8px 10px; border-radius:10px; cursor:pointer; font-size:13px;}
-    .btn:hover{border-color:#555;}
-    .btn.primary{background:#202a2a; border-color:#2e4a4a;}
-    .grid2{display:grid; grid-template-columns:1fr 1fr; gap:8px;}
-    .small{font-size:12px; color:var(--muted); line-height:1.5;}
-    .stat{font-size:12px; background:#111; padding:8px; border-radius:8px; border:1px solid #2a2a2a;}
-    .legend{display:grid; grid-template-columns:auto 1fr; gap:6px 10px; font-size:12px; align-items:center;}
-    .swatch{width:18px; height:18px; border-radius:4px; border:1px solid #555;}
-    details{background:#121212; padding:8px; border-radius:8px; border:1px solid #2a2a2a; margin-top:10px;}
-    summary{cursor:pointer; font-size:13px;}
-    textarea{width:100%; height:84px; background:#0f0f0f; color:#eaeaea; border:1px solid #333; border-radius:8px; padding:8px; font-size:12px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;}
-    @media (max-width: 900px){
-      #app{grid-template-columns:1fr; grid-template-rows: 1fr auto;}
-      aside{border-left:none; border-top:1px solid #2a2a2a;}
+    #left {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: radial-gradient(circle at top, #222 0, #000 60%);
+    }
+    #right {
+      width: 260px;
+      padding: 12px 12px 16px;
+      box-sizing: border-box;
+      background: #111;
+      border-left: 1px solid #333;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      font-size: 12px;
+    }
+    canvas {
+      image-rendering: pixelated;
+      border-radius: 6px;
+      box-shadow: 0 0 12px rgba(0,0,0,0.8);
+      background: #000;
+    }
+    h1 {
+      font-size: 14px;
+      margin: 0 0 4px;
+    }
+    .panel {
+      background: #181818;
+      border-radius: 8px;
+      padding: 8px;
+      border: 1px solid #333;
+    }
+    .row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      margin-top: 4px;
+    }
+    label {
+      font-size: 11px;
+      color: #ddd;
+    }
+    input[type=range] {
+      flex: 1;
+    }
+    .val {
+      width: 40px;
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+    button {
+      font-size: 12px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      border: 1px solid #555;
+      background: #222;
+      color: #eee;
+      cursor: pointer;
+    }
+    button:hover {
+      background: #333;
+    }
+    .btn-row {
+      display: flex;
+      gap: 6px;
+      margin-top: 6px;
+    }
+    small {
+      color: #aaa;
+      font-size: 11px;
     }
   </style>
 </head>
 <body>
-<div id="app">
-  <canvas id="cv"></canvas>
-  <aside>
-    <h1>Lemma-Driven CA 2D（4階調）</h1>
-    <div class="small">
-      局所パターン（3×3）から観測された「入→出」をレンマ辞書として学習し、
-      以後同じ局所図形が出たらその出力を適用します。未知は薄灰/濃灰で揺らぎます。
-    </div>
-
-    <div class="row">
-      <label>サイズ</label>
-      <select id="sizeSel" class="btn">
-        <option value="96">96</option>
-        <option value="128" selected>128</option>
-        <option value="160">160</option>
-        <option value="192">192</option>
-      </select>
-    </div>
-
-    <div class="row">
-      <label>スケール（表示倍率）</label>
-      <input id="scaleR" type="range" min="3" max="8" value="5" step="1">
-      <div id="scaleV" style="width:32px; text-align:right; font-size:12px;">5</div>
-    </div>
-
-    <div class="row">
-      <label>速度（steps / sec）</label>
-      <input id="speedR" type="range" min="1" max="60" value="12" step="1">
-      <div id="speedV" style="width:32px; text-align:right; font-size:12px;">12</div>
-    </div>
-
-    <div class="row">
-      <label>未知の揺らぎ強度</label>
-      <input id="jitterR" type="range" min="0" max="1" value="0.60" step="0.01">
-      <div id="jitterV" style="width:48px; text-align:right; font-size:12px;">0.60</div>
-    </div>
-
-    <div class="row">
-      <label>忘却率（辞書の減衰）</label>
-      <input id="forgetR" type="range" min="0" max="0.01" value="0.0006" step="0.0005">
-      <div id="forgetV" style="width:64px; text-align:right; font-size:12px;">0.0006</div>
-    </div>
-
-    <div class="grid2">
-      <button id="playBtn" class="btn primary">▶ 再生</button>
-      <button id="stepBtn" class="btn">⏭ 1ステップ</button>
-      <button id="seedBtn" class="btn">🎲 初期化</button>
-      <button id="clearBtn" class="btn">🧽 クリア</button>
-    </div>
-
-    <div class="row">
-      <label>描画モード</label>
-      <select id="paintSel" class="btn">
-        <option value="3">黒（確定/生）</option>
-        <option value="2">濃灰（競合/生になりかけ）</option>
-        <option value="1">薄灰（未確定/揺らぎ）</option>
-        <option value="0">白（空）</option>
-        <option value="-1" selected>消しゴム（右クリック）</option>
-      </select>
-    </div>
-
-    <div class="legend">
-      <div class="swatch" style="background:#ffffff"></div><div>0: 白（空/死）</div>
-      <div class="swatch" style="background:#bdbdbd"></div><div>1: 薄灰（未確定/揺らぎ）</div>
-      <div class="swatch" style="background:#5a5a5a"></div><div>2: 濃灰（競合/半確定）</div>
-      <div class="swatch" style="background:#000000"></div><div>3: 黒（確定/生）</div>
-    </div>
-
-    <div class="row stat" id="stats"></div>
-
-    <details>
-      <summary>レンマ辞書のエクスポート / インポート</summary>
-      <div class="small" style="margin:6px 0 4px;">現在の辞書（JSON）</div>
-      <textarea id="dictArea" spellcheck="false"></textarea>
-      <div class="grid2" style="margin-top:6px;">
-        <button id="exportBtn" class="btn">📤 エクスポート</button>
-        <button id="importBtn" class="btn">📥 インポート</button>
+  <div id="left">
+    <canvas id="cv"></canvas>
+  </div>
+  <div id="right">
+    <div class="panel">
+      <h1>Slow CA (4階調×ロジスティック＋慣性)</h1>
+      <small>収束しにくく、ゆっくりうねるように動くCAです。</small>
+      <div class="btn-row">
+        <button id="playBtn">▶ 再生</button>
+        <button id="seedBtn">🎲 初期化</button>
+        <button id="clearBtn">□ クリア</button>
       </div>
-      <div class="small" style="margin-top:6px;">
-        ※辞書は局所3×3パターンの「入→出」平均を保存しています。  
-        実験の途中で保存/再開ができます。
+    </div>
+
+    <div class="panel">
+      <label>スケール（セルの大きさ）</label>
+      <div class="row">
+        <input id="scaleR" type="range" min="3" max="10" value="5">
+        <span id="scaleV" class="val">5</span>
       </div>
-    </details>
 
-    <details>
-      <summary>使い方</summary>
-      <div class="small">
-        ・画面をドラッグするとセルを描けます（左＝選択状態、右＝白で消去）。<br>
-        ・再生すると辞書が育ち、黒い“確定”が増える傾向が出ます。<br>
-        ・未知領域は薄灰/濃灰でゆらぎます（レンマの論理の「両非/両是」領域）。<br>
-        ・速度や揺らぎを変えると相転移が見やすいです。
+      <label>速度（step/秒）</label>
+      <div class="row">
+        <input id="speedR" type="range" min="1" max="30" value="8">
+        <span id="speedV" class="val">8</span>
       </div>
-    </details>
 
-    <details>
-      <summary>技術メモ（あなた向け）</summary>
-      <div class="small">
-        ・3×3局所入力を base-4 で符号化（0..3）→ key。<br>
-        ・各 key に対し、出力3×3の各セルについて 0/1/2/3 のヒストグラムとシフト方向ヒストグラムを保持。<br>
-        ・未知 key は近傍の灰色傾向+揺らぎで補間。<br>
-        ・競合は「重み（count）」でランダム優先（soft winner-take-all）。
+      <label>慣性（0 = 速い / 1 = とても遅い）</label>
+      <div class="row">
+        <input id="alphaR" type="range" min="0" max="100" value="25">
+        <span id="alphaV" class="val">0.25</span>
       </div>
-    </details>
-  </aside>
-</div>
 
-<script>
-(() => {
-  // ---- PWA install & SW ----
-  if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
-  }
+      <label>更新割合（1 = 全セル / 小さいほどゆっくり）</label>
+      <div class="row">
+        <input id="updR" type="range" min="5" max="100" value="30">
+        <span id="updV" class="val">0.30</span>
+      </div>
 
-  // ---- Canvas / Grid ----
-  const cv = document.getElementById('cv');
-  const ctx = cv.getContext('2d', { alpha: false });
-  let N = 128, scale = 5;
-  function resizeCanvas(){
-    cv.width = N * scale;
-    cv.height = N * scale;
-    cv.style.imageRendering = 'pixelated';
-    draw();
-  }
+      <label>ロジスティック r（カオス度）</label>
+      <div class="row">
+        <input id="rR" type="range" min="300" max="400" value="370">
+        <span id="rV" class="val">3.70</span>
+      </div>
+    </div>
 
-  const COLORS = ["#ffffff", "#bdbdbd", "#5a5a5a", "#000000"];
+    <div class="panel">
+      <small>
+        ・4階調（0=黒, 3=白）<br>
+        ・各セルは近傍の平均 → ロジスティック写像 → 慣性ブレンド → 部分更新、の順で更新されます。<br>
+        ・収束しにくく、ずっとゆっくりうねり続けるように設計してあります。
+      </small>
+    </div>
+  </div>
 
-  let grid = new Uint8Array(N*N);
-  let next = new Uint8Array(N*N);
+  <script>
+    const cv = document.getElementById('cv');
+    const ctx = cv.getContext('2d');
 
-  // Lemma dictionary (shift+mode-hist): key -> {count, hist[9*4], shiftHist[9]}
-  const dict = new Map();
+    const scaleR = document.getElementById('scaleR');
+    const scaleV = document.getElementById('scaleV');
+    const speedR = document.getElementById('speedR');
+    const speedV = document.getElementById('speedV');
+    const alphaR = document.getElementById('alphaR');
+    const alphaV = document.getElementById('alphaV');
+    const updR = document.getElementById('updR');
+    const updV = document.getElementById('updV');
+    const rR = document.getElementById('rR');
+    const rV = document.getElementById('rV');
 
-  // ---- Utilities ----
-  const idx = (x,y) => (y*N + x);
-  const clamp = (v,a,b)=> v<a?a:v>b?b:v;
-  const wrap = (v)=> (v+N)%N;
+    const playBtn = document.getElementById('playBtn');
+    const seedBtn = document.getElementById('seedBtn');
+    const clearBtn = document.getElementById('clearBtn');
 
-  function encode3x3(x,y, arr){
-    // base-4 encoding of 3x3 neighborhood
-    let key = 0;
-    let p = 1;
-    for(let dy=-1; dy<=1; dy++){
-      for(let dx=-1; dx<=1; dx++){
-        const v = arr[idx(wrap(x+dx), wrap(y+dy))];
-        key += v * p;
-        p *= 4;
-      }
+    let N = 128;
+    let scale = parseInt(scaleR.value, 10);
+    let grid = new Uint8Array(N * N);
+    let next = new Uint8Array(N * N);
+
+    function resizeCanvas() {
+      scale = parseInt(scaleR.value, 10);
+      const size = Math.min(window.innerWidth - 260 - 32, window.innerHeight - 40);
+      const cells = Math.floor(size / scale);
+      N = Math.max(32, Math.min(256, cells));
+      cv.width = N * scale;
+      cv.height = N * scale;
+      grid = new Uint8Array(N * N);
+      next = new Uint8Array(N * N);
+      seed();
+      draw();
     }
-    return key >>> 0;
-  }
 
-  function get3x3(x,y, arr, out9){
-    let i=0;
-    for(let dy=-1; dy<=1; dy++){
-      for(let dx=-1; dx<=1; dx++){
-        out9[i++] = arr[idx(wrap(x+dx), wrap(y+dy))];
-      }
+    function idx(x, y) {
+      return ((y + N) % N) * N + ((x + N) % N);
     }
-  }
 
-  function set3x3(x,y, arr, in9){
-    let i=0;
-    for(let dy=-1; dy<=1; dy++){
-      for(let dx=-1; dx<=1; dx++){
-        arr[idx(wrap(x+dx), wrap(y+dy))] = in9[i++];
-      }
-    }
-  }
-
-  // ---- Random seed ----
-  function seed(){
-    for(let i=0;i<grid.length;i++){
-      const r = Math.random();
-      // darker bootstrap for v6: more 2/3 to form moving black lemmas
-      grid[i] = r<0.45?0 : r<0.60?1 : r<0.82?2 : 3;
-    }
-  }
-
-  function clearGrid(){
-    grid.fill(0);
-  }
-
-  // ---- Update step (Lemma-driven) ----
-  let jitter = 0.60;
-  let forget = 0.0006;
-
-  function step(){
-    // 1) Create next by lemma application (soft, overlapping)
-    next.set(grid); // start from current as base
-
-    const in9 = new Uint8Array(9);
-    const out9 = new Float32Array(9);
-
-    // Accumulator for competing writes
-    const accVal = new Float32Array(N*N);
-    const accW   = new Float32Array(N*N);
-
-    for(let y=0;y<N;y++){
-      for(let x=0;x<N;x++){
-        const key = encode3x3(x,y,grid);
-        const entry = dict.get(key);
-        if(entry){
-          // Use learned MODE output from histogram (per-cell argmax over 0..3)
-          // and apply a learned shift (glider bias)
-          const hist = entry.hist;
-          const sh = entry.shiftHist;
-          // dominant shift
-          let bestS = 4, bestC = sh ? (sh[4]||0) : 0;
-          if(sh){
-            for(let s=0;s<9;s++){
-              const c = sh[s]||0;
-              if(c>bestC){ bestC=c; bestS=s; }
-            }
-          }
-          const sdx = (bestS%3)-1;
-          const sdy = ((bestS/3)|0)-1;
-
-          let i=0;
-          for(let dy=-1; dy<=1; dy++){
-            for(let dx=-1; dx<=1; dx++){
-              const xx=wrap(x+dx+sdx), yy=wrap(y+dy+sdy);
-              const id=idx(xx,yy);
-              const w = Math.sqrt(entry.count);
-
-              const h0 = hist[i*4+0], h1 = hist[i*4+1], h2 = hist[i*4+2], h3 = hist[i*4+3];
-              let mode = 0, best = h0;
-              if(h1>best){ best=h1; mode=1; }
-              if(h2>best){ best=h2; mode=2; }
-              if(h3>best){ best=h3; mode=3; }
-
-              // epsilon-sampling to preserve dynamics
-              const eps = Math.min(0.35, jitter*0.45);
-              let val = mode;
-              if(Math.random() < eps){
-                const sum = h0+h1+h2+h3;
-                if(sum>0){
-                  const r = Math.random()*sum;
-                  val = (r<h0)?0:(r<h0+h1)?1:(r<h0+h1+h2)?2:3;
-                }
-              }
-
-              accVal[id] += val*w;
-              accW[id]   += w;
-              i++;
-            }
-          }
-        } else {
-          // Unknown: weak pull toward nearby gray tendency + jitter
-          // compute local average
-          let s=0;
-          for(let dy=-1; dy<=1; dy++){
-            for(let dx=-1; dx<=1; dx++){
-              s += grid[idx(wrap(x+dx), wrap(y+dy))];
-            }
-          }
-          const avg = s/9; // 0..3
-          let i=0;
-          for(let dy=-1; dy<=1; dy++){
-            for(let dx=-1; dx<=1; dx++){
-              const xx=wrap(x+dx), yy=wrap(y+dy);
-              const id=idx(xx,yy);
-              const noise = (Math.random()-0.5)*2*jitter; // [-jitter, jitter]
-              const v = clamp(avg + noise + 0.15, 0, 3); // slight dark prior
-              const w = 0.12;
-              if(dx===0 && dy===0){ accVal[id] += v*w; accW[id] += w; }
-              i++;
-            }
-          }
-        }
+    function seed() {
+      for (let i = 0; i < grid.length; i++) {
+        const r = Math.random();
+        // 0 多め、1〜3 も少し入れる
+        grid[i] = r < 0.55 ? 0 : r < 0.75 ? 1 : r < 0.9 ? 2 : 3;
       }
     }
 
-    // Resolve accumulator -> next
-    for(let i=0;i<next.length;i++){
-      if(accW[i]>0){
-        const v = accVal[i]/accW[i];
-        next[i] = clamp(Math.round(v),0,3);
-      } else {
-        next[i] = grid[i];
-      }
+    function clearGrid() {
+      grid.fill(0);
     }
 
-    
-    // --- black persistence boost: 黒が急激に消えないように軽く抵抗を入れる ---
-    for(let i=0;i<next.length;i++){
-      if(grid[i]===3 && next[i]<=2 && Math.random()<0.12){
-        next[i]=3;
-      }
-    }
+    function stepOnce() {
+      const rParam = parseInt(rR.value, 10) / 100; // 3.00〜4.00
+      const alpha = parseInt(alphaR.value, 10) / 100;
+      const updateProb = parseInt(updR.value, 10) / 100;
 
-// 2) Learn lemmas from (grid -> next) using histograms + shift
-    const inBlock = new Uint8Array(9);
-    const outBlock = new Uint8Array(9);
-    for(let y=0;y<N;y++){
-      for(let x=0;x<N;x++){
-        const key = encode3x3(x,y,grid);
-        get3x3(x,y, grid, inBlock);
-        get3x3(x,y, next, outBlock);
-
-        // skip learning on uniform patches to avoid all-black / flat attractors
-        let minIn=4, maxIn=-1, minOut=4, maxOut=-1;
-        for(let k=0;k<9;k++){
-          const iv=inBlock[k], ov=outBlock[k];
-          if(iv<minIn) minIn=iv;
-          if(iv>maxIn) maxIn=iv;
-          if(ov<minOut) minOut=ov;
-          if(ov>maxOut) maxOut=ov;
-        }
-        if(maxIn===minIn && maxOut===minOut){
-          continue;
-        }
-
-        let entry = dict.get(key);
-        if(!entry){
-          entry = { count: 0, hist: new Uint32Array(9*4), shiftHist: new Uint32Array(9) };
-          dict.set(key, entry);
-        }
-        entry.count += 1;
-
-        // best shift by matching outBlock to shifted inBlock
-        let bestS = 4, bestD = 1e9;
-        for(let sy=-1; sy<=1; sy++){
-          for(let sx=-1; sx<=1; sx++){
-            let d=0;
-            for(let ddy=-1; ddy<=1; ddy++){
-              for(let ddx=-1; ddx<=1; ddx++){
-                const ii = (ddy+1)*3+(ddx+1);
-                const jj = (ddy-sy+1)*3+(ddx-sx+1);
-                if(jj>=0 && jj<9){
-                  d += Math.abs(outBlock[ii]-inBlock[jj]);
-                } else {
-                  d += 2; // penalty for outside
-                }
-              }
-            }
-            const sIdx = (sy+1)*3+(sx+1);
-            if(d<bestD){ bestD=d; bestS=sIdx; }
-          }
-        }
-        entry.shiftHist[bestS] += 1;
-
-        // increment histogram for each of 9 positions
-        for(let i=0;i<9;i++){
-          entry.hist[i*4 + outBlock[i]] += 1;
-        }
-      }
-    }
-
-// 3) Forgetting / decay
-    if(forget>0){
-      for(const [k,e] of dict){
-        e.count *= (1 - forget);
-        if(e.count < 0.5){
-          dict.delete(k);
-        }
-      }
-    }
-
-
-
-    // --- black re-seeding when black is scarce ---
-    let blackCount2 = 0;
-    for(const v of next) if(v===3) blackCount2++;
-    if(blackCount2 < next.length * 0.015){ // 黒が1.5%未満なら
-      for(let i=0;i<next.length;i++){
-        if(next[i]<=1 && Math.random()<0.006){
-          next[i]=3; // 黒の種
-        }
-      }
-    }
-
-// --- gentle re-seeding when black is scarce ---
-    let blackCount = 0;
-    for(const v of next) if(v===3) blackCount++;
-    if(blackCount < next.length * 0.02){ // 黒が2%未満なら
-      for(let i=0;i<next.length;i++){
-        if(next[i]===0 && Math.random()<0.01){
-          next[i]=1; // 薄灰の種
-        }
-      }
-    }
-
-    // --- gray drift breaker: 灰色が長く残る固定点を壊す ---
-    for (let i = 0; i < grid.length; i++) {
-      const v = next[i];
-      if (v === 1 || v === 2) {
-        if (Math.random() < 0.015) {
+      // 1) 近傍平均 -> ロジスティックで新値候補 next を作る
+      for (let y = 0; y < N; y++) {
+        for (let x = 0; x < N; x++) {
           let s = 0;
-          const x = i % N;
-          const y = (i / N) | 0;
           for (let dy = -1; dy <= 1; dy++) {
             for (let dx = -1; dx <= 1; dx++) {
-              s += grid[idx(wrap(x+dx), wrap(y+dy))];
+              s += grid[idx(x + dx, y + dy)];
             }
           }
-          const avg = s / 9;
-          next[i] = avg > 1.5 ? 3 : 0;
+          const m = s / 9;      // 0..3
+          let u = m / 3;        // 0..1
+          let up = rParam * u * (1 - u); // logistic map
+          if (!Number.isFinite(up)) up = 0.5;
+          if (up < 0) up = 0;
+          else if (up > 1) up = 1;
+          const v = Math.floor(up * 4); // 0..3
+          next[idx(x, y)] = v;
         }
       }
-    }
 
-    // swap
-    const tmp = grid; grid = next; next = tmp;
-
-    draw();
-    updateStats();
-  }
-
-  // ---- Draw ----
-  function draw(){
-    const w=cv.width, h=cv.height;
-    // draw pixelated blocks
-    for(let y=0;y<N;y++){
-      for(let x=0;x<N;x++){
-        ctx.fillStyle = COLORS[grid[idx(x,y)]];
-        ctx.fillRect(x*scale, y*scale, scale, scale);
-      }
-    }
-  }
-
-  // ---- Controls ----
-  const sizeSel = document.getElementById('sizeSel');
-  const scaleR = document.getElementById('scaleR');
-  const speedR = document.getElementById('speedR');
-  const jitterR = document.getElementById('jitterR');
-  const forgetR = document.getElementById('forgetR');
-
-  const scaleV = document.getElementById('scaleV');
-  const speedV = document.getElementById('speedV');
-  const jitterV = document.getElementById('jitterV');
-  const forgetV = document.getElementById('forgetV');
-
-  function applySize(){
-    N = parseInt(sizeSel.value,10);
-    grid = new Uint8Array(N*N);
-    next = new Uint8Array(N*N);
-    dict.clear();
-    seed();
-    resizeCanvas();
-    updateStats();
-  }
-
-  sizeSel.onchange = applySize;
-
-  scaleR.oninput = () => {
-    scale = parseInt(scaleR.value,10);
-    scaleV.textContent = scale;
-    resizeCanvas();
-  };
-  speedR.oninput = () => speedV.textContent = speedR.value;
-  jitterR.oninput = () => { jitter = parseFloat(jitterR.value); jitterV.textContent = jitter.toFixed(2); };
-  forgetR.oninput = () => { forget = parseFloat(forgetR.value); forgetV.textContent = forget.toFixed(4); };
-
-  const playBtn = document.getElementById('playBtn');
-  const stepBtn = document.getElementById('stepBtn');
-  const seedBtn = document.getElementById('seedBtn');
-  const clearBtn = document.getElementById('clearBtn');
-
-  let playing=false, timer=null;
-  function start(){
-    if(timer) clearInterval(timer);
-    const sp = parseInt(speedR.value,10);
-    timer = setInterval(step, 1000/sp);
-    playing=true;
-    playBtn.textContent="⏸ 停止";
-  }
-  function stop(){
-    if(timer) clearInterval(timer);
-    timer=null;
-    playing=false;
-    playBtn.textContent="▶ 再生";
-  }
-  playBtn.onclick = () => playing?stop():start();
-  stepBtn.onclick = () => { if(!playing) step(); };
-  seedBtn.onclick = () => { dict.clear(); seed(); draw(); updateStats(); };
-  clearBtn.onclick = () => { dict.clear(); clearGrid(); draw(); updateStats(); };
-
-  // ---- Painting ----
-  const paintSel = document.getElementById('paintSel');
-  let painting=false, paintVal=3;
-
-  function pointerToCell(ev){
-    const rect=cv.getBoundingClientRect();
-    const x=Math.floor((ev.clientX-rect.left) / (rect.width / cv.width) / scale);
-    const y=Math.floor((ev.clientY-rect.top) / (rect.height / cv.height) / scale);
-    return {x:clamp(x,0,N-1), y:clamp(y,0,N-1)};
-  }
-
-  function paintAt(ev, val){
-    const {x,y}=pointerToCell(ev);
-    grid[idx(x,y)] = clamp(val,0,3);
-    draw();
-  }
-
-  cv.addEventListener('pointerdown', (ev)=>{
-    ev.preventDefault();
-    painting=true;
-    paintVal = parseInt(paintSel.value,10);
-    if(ev.button===2){ paintVal=0; }
-    paintAt(ev, paintVal>=0?paintVal:0);
-    cv.setPointerCapture(ev.pointerId);
-  });
-  cv.addEventListener('pointermove', (ev)=>{
-    if(!painting) return;
-    const v = paintVal>=0?paintVal:0;
-    paintAt(ev, v);
-  });
-  cv.addEventListener('pointerup', (ev)=>{ painting=false; cv.releasePointerCapture(ev.pointerId); });
-  cv.addEventListener('contextmenu', e=>e.preventDefault());
-
-  // ---- Export/Import dict ----
-  const dictArea = document.getElementById('dictArea');
-  
-  const exportBtn = document.getElementById('exportBtn');
-  const importBtn = document.getElementById('importBtn');
-
-  function dictToJSON(){
-    const obj = {};
-    for(const [k,e] of dict){
-      obj[k] = { c: e.count, h: Array.from(e.hist), s: Array.from(e.shiftHist || []) };
-    }
-    return JSON.stringify({N, obj}, null, 2);
-  }
-
-  function jsonToDict(str){
-    const data = JSON.parse(str);
-    if(data.N && data.N!==N){
-      sizeSel.value = String(data.N);
-      applySize();
-    }
-    dict.clear();
-    for(const k in data.obj){
-      const e = data.obj[k];
-      if(e.h){
-        dict.set(Number(k), {
-          count: e.c,
-          hist: Uint32Array.from(e.h),
-          shiftHist: Uint32Array.from(e.s || new Array(9).fill(0))
-        });
-      } else if(e.m){
-        const hist = new Uint32Array(9*4);
-        for(let i=0;i<9;i++){
-          const v = Math.max(0, Math.min(3, Math.round(e.m[i])));
-          hist[i*4+v] = Math.max(1, Math.round(e.c/9));
+      // 2) 慣性ブレンド + 部分更新でゆっくりにする
+      for (let i = 0; i < next.length; i++) {
+        const oldV = grid[i];
+        const newV = next[i];
+        const mixed = (1 - alpha) * oldV + alpha * newV;
+        let v = Math.round(mixed);
+        if (Math.random() > updateProb) {
+          v = oldV;
         }
-        dict.set(Number(k), { count: e.c, hist, shiftHist: new Uint32Array(9) });
+        if (v < 0) v = 0;
+        else if (v > 3) v = 3;
+        next[i] = v;
       }
+
+      // 3) swap
+      const tmp = grid;
+      grid = next;
+      next = tmp;
     }
-  }
 
-  exportBtn.onclick = ()=>{ dictArea.value = dictToJSON(); dictArea.select(); };
-  importBtn.onclick = ()=>{
-    try{
-      jsonToDict(dictArea.value);
-      updateStats();
-    }catch(err){
-      alert("インポート失敗: " + err.message);
+    function draw() {
+      const img = ctx.createImageData(N, N);
+      const data = img.data;
+      for (let i = 0; i < grid.length; i++) {
+        const v = grid[i];
+        const g = v === 0 ? 0 : v === 1 ? 80 : v === 2 ? 170 : 255;
+        const j = i * 4;
+        data[j] = g;
+        data[j + 1] = g;
+        data[j + 2] = g;
+        data[j + 3] = 255;
+      }
+      // 拡大描画
+      const tmpCanvas = document.createElement('canvas');
+      tmpCanvas.width = N;
+      tmpCanvas.height = N;
+      tmpCanvas.getContext('2d').putImageData(img, 0, 0);
+      ctx.imageSmoothingEnabled = false;
+      ctx.clearRect(0, 0, cv.width, cv.height);
+      ctx.drawImage(tmpCanvas, 0, 0, cv.width, cv.height);
     }
-  };
 
-// ---- Stats ----
-  const statsEl = document.getElementById('stats');
-  function updateStats(){
-    let c0=0,c1=0,c2=0,c3=0;
-    for(const v of grid){
-      if(v===0)c0++; else if(v===1)c1++; else if(v===2)c2++; else c3++;
+    // UI bindings
+    scaleR.addEventListener('input', () => {
+      scaleV.textContent = scaleR.value;
+      resizeCanvas();
+    });
+    speedR.addEventListener('input', () => {
+      speedV.textContent = speedR.value;
+    });
+    alphaR.addEventListener('input', () => {
+      const a = (parseInt(alphaR.value, 10) / 100).toFixed(2);
+      alphaV.textContent = a;
+    });
+    updR.addEventListener('input', () => {
+      const u = (parseInt(updR.value, 10) / 100).toFixed(2);
+      updV.textContent = u;
+    });
+    rR.addEventListener('input', () => {
+      const rv = (parseInt(rR.value, 10) / 100).toFixed(2);
+      rV.textContent = rv;
+    });
+
+    seedBtn.addEventListener('click', () => {
+      seed();
+      draw();
+    });
+    clearBtn.addEventListener('click', () => {
+      clearGrid();
+      draw();
+    });
+
+    // play loop (requestAnimationFrame)
+    let playing = false;
+    let lastT = 0;
+    let acc = 0;
+
+    function loop(t) {
+      if (!playing) return;
+      if (!lastT) lastT = t;
+      const dt = (t - lastT) / 1000;
+      lastT = t;
+      acc += dt;
+
+      const stepsPerSec = parseInt(speedR.value, 10);
+      const stepDt = 1 / stepsPerSec;
+
+      while (acc >= stepDt) {
+        stepOnce();
+        acc -= stepDt;
+      }
+      draw();
+      requestAnimationFrame(loop);
     }
-    statsEl.innerHTML = `
-      セル数: ${N}×${N} / 辞書: ${dict.size} lemma<br>
-      白:${c0} 薄灰:${c1} 濃灰:${c2} 黒:${c3}
-    `;
-  }
 
-  // ---- Boot ----
-  seed();
-  resizeCanvas();
-  updateStats();
+    playBtn.addEventListener('click', () => {
+      playing = !playing;
+      playBtn.textContent = playing ? "⏸ 停止" : "▶ 再生";
+      if (playing) {
+        lastT = 0;
+        acc = 0;
+        requestAnimationFrame(loop);
+      }
+    });
 
-})();
-</script>
+    window.addEventListener('resize', () => {
+      resizeCanvas();
+    });
+
+    // 初期設定
+    resizeCanvas();
+    speedV.textContent = speedR.value;
+    alphaV.textContent = (parseInt(alphaR.value, 10) / 100).toFixed(2);
+    updV.textContent = (parseInt(updR.value, 10) / 100).toFixed(2);
+    rV.textContent = (parseInt(rR.value, 10) / 100).toFixed(2);
+    draw();
+
+    // PWA用 Service Worker 登録
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js').catch(()=>{});
+      });
+    }
+  </script>
 </body>
 </html>
